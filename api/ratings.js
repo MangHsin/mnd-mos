@@ -1,72 +1,61 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { MongoClient } = require('mongodb');
 
-// 数据库路径（使用临时文件系统）
-const dbPath = '/tmp/ratings.db';
-let db;
+// MongoDB连接字符串（需要在Vercel环境变量中设置）
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://username:password@cluster.mongodb.net/mnd-mos-test?retryWrites=true&w=majority';
+const DB_NAME = 'mnd-mos-test';
+const COLLECTION_NAME = 'ratings';
 
-// 初始化数据库
-function initDatabase() {
-  return new Promise((resolve, reject) => {
-    db = new sqlite3.Database(dbPath, (err) => {
-      if (err) {
-        console.error('数据库连接错误:', err);
-        reject(err);
-        return;
-      }
-      
-      console.log('数据库连接成功');
-      
-      // 创建评分表
-      const createTableSQL = `
-        CREATE TABLE IF NOT EXISTS ratings (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          sessionId TEXT NOT NULL,
-          trialId INTEGER NOT NULL,
-          leftAlgorithm TEXT,
-          leftImage TEXT,
-          rightImage TEXT,
-          rating INTEGER NOT NULL,
-          timestamp TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
-      
-      db.run(createTableSQL, (err) => {
-        if (err) {
-          console.error('创建表错误:', err);
-          reject(err);
-          return;
-        }
-        
-        console.log('数据库表初始化完成');
-        resolve();
-      });
-    });
-  });
+let client;
+
+// 连接数据库
+async function connectDB() {
+  if (!client) {
+    client = new MongoClient(MONGODB_URI);
+    await client.connect();
+  }
+  return client.db(DB_NAME);
 }
 
 // 保存评分
-function saveRating(ratingData) {
-  return new Promise((resolve, reject) => {
-    const { sessionId, trialId, leftAlgorithm, leftImage, rightImage, rating, timestamp } = ratingData;
-    
-    const sql = `
-      INSERT INTO ratings (sessionId, trialId, leftAlgorithm, leftImage, rightImage, rating, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    
-    db.run(sql, [sessionId, trialId, leftAlgorithm, leftImage, rightImage, rating, timestamp], function(err) {
-      if (err) {
-        console.error('保存评分错误:', err);
-        reject(err);
-        return;
-      }
-      
-      console.log(`评分已保存，ID: ${this.lastID}`);
-      resolve(this.lastID);
-    });
+async function saveRating(ratingData) {
+  const db = await connectDB();
+  const collection = db.collection(COLLECTION_NAME);
+  
+  const result = await collection.insertOne({
+    ...ratingData,
+    createdAt: new Date()
   });
+  
+  return result.insertedId;
+}
+
+// 获取所有结果
+async function getResults() {
+  const db = await connectDB();
+  const collection = db.collection(COLLECTION_NAME);
+  
+  return await collection.find({}).sort({ createdAt: -1 }).toArray();
+}
+
+// 获取统计结果
+async function getStatistics() {
+  const db = await connectDB();
+  const collection = db.collection(COLLECTION_NAME);
+  
+  return await collection.aggregate([
+    {
+      $group: {
+        _id: '$leftAlgorithm',
+        total_ratings: { $sum: 1 },
+        avg_rating: { $avg: '$rating' },
+        min_rating: { $min: '$rating' },
+        max_rating: { $max: '$rating' }
+      }
+    },
+    {
+      $sort: { _id: 1 }
+    }
+  ]).toArray();
 }
 
 module.exports = async (req, res) => {
@@ -81,18 +70,15 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST') {
-    try {
-      // 初始化数据库
-      await initDatabase();
-      
+  try {
+    if (req.method === 'POST') {
       const { sessionId, trialId, leftAlgorithm, leftImage, rightImage, rating, timestamp } = req.body;
       
       if (!sessionId || !trialId || !rating) {
         return res.status(400).json({ error: '缺少必要参数' });
       }
       
-      await saveRating({
+      const insertedId = await saveRating({
         sessionId,
         trialId,
         leftAlgorithm,
@@ -102,12 +88,22 @@ module.exports = async (req, res) => {
         timestamp: timestamp || new Date().toISOString()
       });
       
-      res.json({ success: true, message: '评分保存成功' });
-    } catch (error) {
-      console.error('保存评分错误:', error);
-      res.status(500).json({ error: '服务器内部错误' });
+      res.json({ success: true, message: '评分保存成功', id: insertedId });
+    } else if (req.method === 'GET') {
+      const { type } = req.query;
+      
+      if (type === 'statistics') {
+        const results = await getStatistics();
+        res.json(results);
+      } else {
+        const results = await getResults();
+        res.json(results);
+      }
+    } else {
+      res.status(405).json({ error: '方法不允许' });
     }
-  } else {
-    res.status(405).json({ error: '方法不允许' });
+  } catch (error) {
+    console.error('API错误:', error);
+    res.status(500).json({ error: '服务器内部错误', details: error.message });
   }
 }; 
