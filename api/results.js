@@ -16,7 +16,7 @@ async function connectDB() {
     });
     await client.connect();
     console.log('MongoDB连接成功');
-    return client.db(DB_NAME);
+    return { client, db: client.db(DB_NAME) };
   } catch (error) {
     console.error('MongoDB连接失败:', error);
     throw error;
@@ -25,10 +25,10 @@ async function connectDB() {
 
 // 获取所有结果
 async function getResults() {
-  let client;
+  let connection;
   try {
-    const db = await connectDB();
-    const collection = db.collection(COLLECTION_NAME);
+    connection = await connectDB();
+    const collection = connection.db.collection(COLLECTION_NAME);
     
     return await collection.find({}).sort({ createdAt: -1 }).toArray();
   } catch (error) {
@@ -36,18 +36,18 @@ async function getResults() {
     throw error;
   } finally {
     // 确保关闭连接
-    if (client) {
-      await client.close();
+    if (connection && connection.client) {
+      await connection.client.close();
     }
   }
 }
 
 // 获取统计结果
 async function getStatistics() {
-  let client;
+  let connection;
   try {
-    const db = await connectDB();
-    const collection = db.collection(COLLECTION_NAME);
+    connection = await connectDB();
+    const collection = connection.db.collection(COLLECTION_NAME);
     
     return await collection.aggregate([
       {
@@ -68,8 +68,8 @@ async function getStatistics() {
     throw error;
   } finally {
     // 确保关闭连接
-    if (client) {
-      await client.close();
+    if (connection && connection.client) {
+      await connection.client.close();
     }
   }
 }
