@@ -5,22 +5,20 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://username:password@
 const DB_NAME = 'mnd-mos-test';
 const COLLECTION_NAME = 'ratings';
 
-let client;
-
-// 连接数据库
+// 在Serverless环境中，每次调用都重新连接
 async function connectDB() {
   try {
-    if (!client) {
-      console.log('正在连接MongoDB...');
-      console.log('连接字符串:', MONGODB_URI ? '已设置' : '未设置');
-      
-      client = new MongoClient(MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 10000,
-      });
-      await client.connect();
-      console.log('MongoDB连接成功');
-    }
+    console.log('正在连接MongoDB...');
+    console.log('连接字符串:', MONGODB_URI ? '已设置' : '未设置');
+    
+    const client = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
+      maxPoolSize: 1, // Serverless环境使用最小连接池
+    });
+    
+    await client.connect();
+    console.log('MongoDB连接成功');
     return client.db(DB_NAME);
   } catch (error) {
     console.error('MongoDB连接失败:', error);
@@ -30,6 +28,7 @@ async function connectDB() {
 
 // 保存评分
 async function saveRating(ratingData) {
+  let client;
   try {
     const db = await connectDB();
     const collection = db.collection(COLLECTION_NAME);
@@ -44,11 +43,17 @@ async function saveRating(ratingData) {
   } catch (error) {
     console.error('保存评分失败:', error);
     throw error;
+  } finally {
+    // 确保关闭连接
+    if (client) {
+      await client.close();
+    }
   }
 }
 
 // 获取所有结果
 async function getResults() {
+  let client;
   try {
     const db = await connectDB();
     const collection = db.collection(COLLECTION_NAME);
@@ -57,11 +62,17 @@ async function getResults() {
   } catch (error) {
     console.error('获取结果失败:', error);
     throw error;
+  } finally {
+    // 确保关闭连接
+    if (client) {
+      await client.close();
+    }
   }
 }
 
 // 获取统计结果
 async function getStatistics() {
+  let client;
   try {
     const db = await connectDB();
     const collection = db.collection(COLLECTION_NAME);
@@ -83,6 +94,11 @@ async function getStatistics() {
   } catch (error) {
     console.error('获取统计失败:', error);
     throw error;
+  } finally {
+    // 确保关闭连接
+    if (client) {
+      await client.close();
+    }
   }
 }
 

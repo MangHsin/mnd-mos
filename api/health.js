@@ -15,7 +15,8 @@ module.exports = async (req, res) => {
       status: 'ok', 
       timestamp: new Date().toISOString(),
       service: 'MND-MOS Test API',
-      version: '1.0.0'
+      version: '1.0.0',
+      deployment: 'manual-redeploy-2024'
     });
   } else {
     res.status(405).json({ error: '方法不允许' });
