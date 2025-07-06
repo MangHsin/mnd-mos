@@ -9,53 +9,81 @@ let client;
 
 // 连接数据库
 async function connectDB() {
-  if (!client) {
-    client = new MongoClient(MONGODB_URI);
-    await client.connect();
+  try {
+    if (!client) {
+      console.log('正在连接MongoDB...');
+      console.log('连接字符串:', MONGODB_URI ? '已设置' : '未设置');
+      
+      client = new MongoClient(MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+      });
+      await client.connect();
+      console.log('MongoDB连接成功');
+    }
+    return client.db(DB_NAME);
+  } catch (error) {
+    console.error('MongoDB连接失败:', error);
+    throw error;
   }
-  return client.db(DB_NAME);
 }
 
 // 保存评分
 async function saveRating(ratingData) {
-  const db = await connectDB();
-  const collection = db.collection(COLLECTION_NAME);
-  
-  const result = await collection.insertOne({
-    ...ratingData,
-    createdAt: new Date()
-  });
-  
-  return result.insertedId;
+  try {
+    const db = await connectDB();
+    const collection = db.collection(COLLECTION_NAME);
+    
+    const result = await collection.insertOne({
+      ...ratingData,
+      createdAt: new Date()
+    });
+    
+    console.log('评分保存成功:', result.insertedId);
+    return result.insertedId;
+  } catch (error) {
+    console.error('保存评分失败:', error);
+    throw error;
+  }
 }
 
 // 获取所有结果
 async function getResults() {
-  const db = await connectDB();
-  const collection = db.collection(COLLECTION_NAME);
-  
-  return await collection.find({}).sort({ createdAt: -1 }).toArray();
+  try {
+    const db = await connectDB();
+    const collection = db.collection(COLLECTION_NAME);
+    
+    return await collection.find({}).sort({ createdAt: -1 }).toArray();
+  } catch (error) {
+    console.error('获取结果失败:', error);
+    throw error;
+  }
 }
 
 // 获取统计结果
 async function getStatistics() {
-  const db = await connectDB();
-  const collection = db.collection(COLLECTION_NAME);
-  
-  return await collection.aggregate([
-    {
-      $group: {
-        _id: '$leftAlgorithm',
-        total_ratings: { $sum: 1 },
-        avg_rating: { $avg: '$rating' },
-        min_rating: { $min: '$rating' },
-        max_rating: { $max: '$rating' }
+  try {
+    const db = await connectDB();
+    const collection = db.collection(COLLECTION_NAME);
+    
+    return await collection.aggregate([
+      {
+        $group: {
+          _id: '$leftAlgorithm',
+          total_ratings: { $sum: 1 },
+          avg_rating: { $avg: '$rating' },
+          min_rating: { $min: '$rating' },
+          max_rating: { $max: '$rating' }
+        }
+      },
+      {
+        $sort: { _id: 1 }
       }
-    },
-    {
-      $sort: { _id: 1 }
-    }
-  ]).toArray();
+    ]).toArray();
+  } catch (error) {
+    console.error('获取统计失败:', error);
+    throw error;
+  }
 }
 
 module.exports = async (req, res) => {
@@ -71,6 +99,9 @@ module.exports = async (req, res) => {
   }
 
   try {
+    console.log('API请求:', req.method, req.url);
+    console.log('环境变量MONGODB_URI:', process.env.MONGODB_URI ? '已设置' : '未设置');
+    
     if (req.method === 'POST') {
       const { sessionId, trialId, leftAlgorithm, leftImage, rightImage, rating, timestamp } = req.body;
       
@@ -104,6 +135,11 @@ module.exports = async (req, res) => {
     }
   } catch (error) {
     console.error('API错误:', error);
-    res.status(500).json({ error: '服务器内部错误', details: error.message });
+    res.status(500).json({ 
+      error: '服务器内部错误', 
+      details: error.message,
+      stack: error.stack,
+      mongodbUri: process.env.MONGODB_URI ? '已设置' : '未设置'
+    });
   }
 }; 
